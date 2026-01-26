@@ -1,0 +1,458 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local SoundService = game:GetService("SoundService")
+
+local function notify(title, text)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = 3
+        })
+    end)
+end
+
+local function playSound(id, vol)
+    local s = Instance.new("Sound")
+    s.SoundId = "rbxassetid://" .. tostring(id)
+    s.Volume = vol or 10
+    s.Parent = SoundService
+    s:Play()
+    s.Ended:Connect(function()
+        s:Destroy()
+    end)
+end
+local LocalPlayer = Players.LocalPlayer
+local DETECT_ANIM_IDS = {
+    ["10503381238"] = true,
+    ["13379003796"] = true
+}
+local DELAY_BEFORE_LOCK = 0.29
+local LOCK_DURATION = 0.65
+local ROTATE_SPEED = 65
+local MAX_DISTANCE = 10
+local AUTO_JUMP_POWER = 40
+local SHOW_COOLDOWN_BAR = true
+local BAR_WIDTH = 3.5
+local BAR_HEIGHT = 0.4
+local COOLDOWN_ONLY_IDS = {
+    ["10479335397"] = true,
+    ["13380255751"] = true
+}
+local Enabled = false
+local Locking = false
+local LockedTarget = nil
+local LockConn, JumpConn
+local InCooldown = false
+local COOLDOWN_TIME = 4.6
+local savedJumpPower, savedUseJumpPower
+local gui = Instance.new("ScreenGui")
+gui.Name = "LockGUI"
+gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local btn = Instance.new("TextButton")
+btn.Parent = gui
+btn.Size = UDim2.new(0, 70, 0, 30)
+btn.ClipsDescendants = true
+btn.Position = UDim2.new(0.05, 0, 0.5, 0)
+btn.Text = "Mini Lix"
+btn.Font = Enum.Font.Arcade
+btn.TextScaled = true
+btn.TextColor3 = Color3.fromRGB(230, 230, 255)
+btn.BackgroundColor3 = Color3.fromRGB(25, 15, 40)
+btn.BorderSizePixel = 0
+btn.AutoButtonColor = false
+btn.Active = true
+notify(
+    "Mini Lix Loading...",
+    "MakeAndCredit : YQANTG"
+)
+
+playSound(6646751775, 10)
+
+task.delay(3, function()
+    if btn then
+        btn.Visible = true
+    end
+end)
+local toggleSound = Instance.new("Sound")
+toggleSound.SoundId = "rbxassetid://226892749"
+toggleSound.Volume = 10
+toggleSound.Parent = btn -- gắn vào btn cho nhẹ
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = btn
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(0, 0, 0)
+stroke.Thickness = 1.6
+stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+stroke.Parent = btn
+local neon = Instance.new("UIStroke")
+neon.Color = Color3.fromRGB(160, 90, 255)
+neon.Thickness = 1.8
+neon.Transparency = 0.25
+neon.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+neon.Parent = btn
+
+local pulseConn
+
+btn.Activated:Connect(function()
+    if dragMoved then return end
+    Enabled = not Enabled
+
+    toggleSound:Play()
+
+    if Enabled then
+        btn.Text = "ON"
+        btn.BackgroundColor3 = Color3.fromRGB(55, 30, 90)
+
+        pulseConn = RunService.RenderStepped:Connect(function()
+            local t = tick()
+            neon.Transparency = 0.15 + math.sin(t * 4) * 0.1
+        end)
+    else
+        btn.Text = "OFF"
+        btn.BackgroundColor3 = Color3.fromRGB(25, 15, 40)
+        neon.Transparency = 0.35
+
+        if pulseConn then
+            pulseConn:Disconnect()
+            pulseConn = nil
+        end
+    end
+end)
+local dragging = false
+local dragStartPos
+local dragStartBtnPos
+local dragMoved = false
+btn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        dragging = true
+        dragMoved = false
+        dragStartPos = input.Position
+        dragStartBtnPos = btn.Position
+    end
+end)
+
+btn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        dragging = false
+    end
+end)
+
+local dragInput
+
+btn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        dragging = true
+        dragMoved = false
+        dragStartPos = input.Position
+        dragStartBtnPos = btn.Position
+        dragInput = input
+    end
+end)
+
+btn.InputChanged:Connect(function(input)
+    if dragging and input == dragInput then
+        local delta = input.Position - dragStartPos
+
+        if math.abs(delta.X) > 6 or math.abs(delta.Y) > 6 then
+            dragMoved = true
+        end
+
+        btn.Position = UDim2.new(
+            dragStartBtnPos.X.Scale,
+            dragStartBtnPos.X.Offset + delta.X,
+            dragStartBtnPos.Y.Scale,
+            dragStartBtnPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+btn.InputEnded:Connect(function(input)
+    if input == dragInput then
+        dragging = false
+        dragInput = nil
+        task.delay(0, function()
+            dragMoved = false
+        end)
+    end
+end)
+local JUMP_POWER = 40
+local JUMP_DURATION = 0.2
+
+local function PushJump(hrp)
+    if InCooldown then return end
+    if not hrp then return end
+
+    local att = hrp:FindFirstChild("JumpAtt")
+    if not att then
+        att = Instance.new("Attachment")
+        att.Name = "JumpAtt"
+        att.Parent = hrp
+    end
+
+    local lv = Instance.new("LinearVelocity")
+    lv.Attachment0 = att
+    lv.MaxForce = math.huge
+    lv.VectorVelocity = Vector3.new(0, JUMP_POWER, 0)
+    lv.RelativeTo = Enum.ActuatorRelativeTo.World
+    lv.Parent = hrp
+
+    task.delay(JUMP_DURATION, function()
+        if lv then lv:Destroy() end
+    end)
+end
+local function DisableDefaultJump(hum)
+    if not hum then return end
+    savedJumpPower = hum.JumpPower
+    savedUseJumpPower = hum.UseJumpPower
+
+    hum.UseJumpPower = true
+    hum.JumpPower = 0
+    hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+end
+
+local function EnableDefaultJump(hum)
+    if not hum then return end
+    hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+
+    if savedJumpPower then
+        hum.JumpPower = savedJumpPower
+    end
+    if savedUseJumpPower ~= nil then
+        hum.UseJumpPower = savedUseJumpPower
+    end
+end
+local function ShowCooldownBar(duration)
+    if not SHOW_COOLDOWN_BAR then return end
+
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local old = hrp:FindFirstChild("CooldownBar")
+    if old then old:Destroy() end
+
+    local gui = Instance.new("BillboardGui")
+    gui.Name = "CooldownBar"
+    gui.Adornee = hrp
+    gui.Size = UDim2.fromScale(4.2, 0.48)
+    gui.StudsOffset = Vector3.new(0, 3.3, 0)
+    gui.AlwaysOnTop = true
+    gui.Parent = hrp
+    local glow = Instance.new("Frame")
+    glow.Size = UDim2.fromScale(1.15, 1.4)
+    glow.Position = UDim2.fromScale(-0.075, -0.2)
+    glow.BackgroundColor3 = Color3.fromRGB(180, 70, 255)
+    glow.BackgroundTransparency = 0.75
+    glow.BorderSizePixel = 0
+    glow.ZIndex = 0
+    glow.Parent = gui
+    Instance.new("UICorner", glow).CornerRadius = UDim.new(1, 0)
+    local border = Instance.new("Frame")
+    border.Size = UDim2.fromScale(1, 1)
+    border.BackgroundColor3 = Color3.fromRGB(110, 40, 180)
+    border.BorderSizePixel = 0
+    border.ZIndex = 1
+    border.Parent = gui
+    Instance.new("UICorner", border).CornerRadius = UDim.new(0, 16)
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.fromScale(0.97, 0.72)
+    bg.Position = UDim2.fromScale(0.015, 0.14)
+    bg.BackgroundColor3 = Color3.fromRGB(12, 8, 20)
+    bg.BorderSizePixel = 0
+    bg.ZIndex = 2
+    bg.Parent = border
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 14)
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.fromScale(1, 1)
+    fill.BorderSizePixel = 0
+    fill.ZIndex = 3
+    fill.Parent = bg
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 14)
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(160, 80, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 120, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(110, 90, 255))
+    }
+    grad.Rotation = 0
+    grad.Parent = fill
+    local shine = Instance.new("UIGradient")
+    shine.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255,255,255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255,255,255))
+    }
+    shine.Transparency = NumberSequence.new{
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.45, 0.4),
+        NumberSequenceKeypoint.new(1, 1)
+    }
+    shine.Rotation = 35
+    shine.Offset = Vector2.new(-1, 0)
+    shine.Parent = fill
+
+    local start = tick()
+    local pulse = 0
+    local conn
+    conn = RunService.RenderStepped:Connect(function(dt)
+        local alpha = math.clamp((tick() - start) / duration, 0, 1)
+        fill.Size = UDim2.fromScale(1 - alpha, 1)
+        shine.Offset = Vector2.new(alpha * 2 - 1, 0)
+
+        pulse += dt * 3
+        glow.BackgroundTransparency = 0.78 + math.sin(pulse) * 0.07
+
+        if alpha >= 1 then
+            conn:Disconnect()
+            gui:Destroy()
+        end
+    end)
+end
+local function FindInitialTarget()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local live = workspace:FindFirstChild("Live")
+    if not hrp or not live then return end
+
+    local nearest, dist = nil, MAX_DISTANCE
+
+    for _, m in pairs(live:GetChildren()) do
+        if m:IsA("Model") and m ~= char and m:FindFirstChild("HumanoidRootPart") and m:FindFirstChildOfClass("Humanoid") then
+            if m.Name == "Weakest Dummy" or Players:GetPlayerFromCharacter(m) then
+                local d = (m.HumanoidRootPart.Position - hrp.Position).Magnitude
+                if d <= dist then
+                    dist = d
+                    nearest = m
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+local function LockToTarget(dt)
+    if not LockedTarget then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local thrp = LockedTarget:FindFirstChild("HumanoidRootPart")
+    if not hrp or not hum or not thrp then return end
+
+    hum.AutoRotate = false
+
+    local tpos = thrp.Position
+    local flat = Vector3.new(tpos.X, hrp.Position.Y, tpos.Z)
+    local look = CFrame.lookAt(hrp.Position, flat)
+    local _, y = look:ToOrientation()
+    hrp.CFrame = hrp.CFrame:Lerp(
+        CFrame.new(hrp.Position) * CFrame.Angles(0, y, 0),
+        dt * ROTATE_SPEED
+    )
+end
+
+local function FireDash()
+    if InCooldown then return end
+    local char = LocalPlayer.Character
+    local remote = char and char:FindFirstChild("Communicate")
+    if not remote then return end
+
+    remote:FireServer({
+        Dash = Enum.KeyCode.W,
+        Key = Enum.KeyCode.Q,
+        Goal = "KeyPress"
+    })
+end
+
+local function StartLock()
+    if Locking or not Enabled or InCooldown then return end
+
+    LockedTarget = FindInitialTarget()
+    if not LockedTarget then return end
+
+    Locking = true
+FireDash()
+
+if InCooldown then return end
+task.delay(0.8, function()
+    if InCooldown then return end
+    InCooldown = true
+ShowCooldownBar(COOLDOWN_TIME)
+
+    task.delay(COOLDOWN_TIME, function()
+        InCooldown = false
+
+        local hum = LocalPlayer.Character
+            and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+
+        EnableDefaultJump(hum)
+    end)
+end)
+local char = LocalPlayer.Character
+local hrp = char and char:FindFirstChild("HumanoidRootPart")
+if hrp then
+    PushJump(hrp)
+end
+
+task.delay(0.12, function()
+    if not Locking then return end
+    LockConn = RunService.RenderStepped:Connect(LockToTarget)
+end)
+    
+
+    task.delay(LOCK_DURATION, function()
+        if LockConn then LockConn:Disconnect() end
+        
+
+        LockedTarget = nil
+        Locking = false
+
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.AutoRotate = true end
+    end)
+end
+local function HookChar(char)
+    local hum = char:WaitForChild("Humanoid")
+
+    hum.AnimationPlayed:Connect(function(track)
+        if not Enabled or InCooldown then return end
+
+        local id = track.Animation.AnimationId:match("%d+")
+        if not id then return end
+        if COOLDOWN_ONLY_IDS[id] then
+            task.delay(0.8, function()
+                if InCooldown then return end
+                InCooldown = true
+ShowCooldownBar(COOLDOWN_TIME)
+
+                task.delay(COOLDOWN_TIME, function()
+                    InCooldown = false
+                    local hum2 = LocalPlayer.Character
+                        and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    EnableDefaultJump(hum2)
+                end)
+            end)
+            return
+        end
+
+        if DETECT_ANIM_IDS[id] then
+    DisableDefaultJump(hum)
+    task.delay(DELAY_BEFORE_LOCK, StartLock)
+end
+    end)
+end
+if LocalPlayer.Character then
+    HookChar(LocalPlayer.Character)
+end
+
+LocalPlayer.CharacterAdded:Connect(HookChar)
